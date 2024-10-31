@@ -32,6 +32,15 @@ def monitor_heartbeats():
             worker_id = key.decode("utf-8").split(":")[1]
             if current_time - heartbeat_time > 30:
                 print(f"Worker {worker_id} is unresponsive")
+                # Mark tasks being processed by this worker as failed
+                task_keys = yadtq_client.redis_client.keys(f"task:*:worker_id:{worker_id}")
+                for task_key in task_keys:
+                    task_id = task_key.decode("utf-8").split(":")[1]
+                    task_info = json.loads(yadtq_client.redis_client.get(task_id))
+                    if task_info["status"] == "processing":
+                        yadtq_client.redis_client.set(
+                            task_id, json.dumps({"status": "failed", "error": "Worker unresponsive", "worker_id": worker_id})
+                        )
             else:
                 print(f"Heartbeat received from worker {worker_id} at {heartbeat_time}")
         time.sleep(10)

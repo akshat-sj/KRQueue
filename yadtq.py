@@ -83,26 +83,43 @@ class YADTQ:
     def run(self, task_func: Callable[[str, list], str]):
         self.send_heartbeat()
 
-        for message in self.consumer:
-            task_data = message.value
-            task_id = task_data["task-id"]
-            task_type = task_data["task"]
-            args = task_data["args"]
-            
-            self.redis_client.set(
-                task_id, json.dumps({"status": "processing", "worker_id": self.worker_id})
-            )
-            
-            try:
-                result = task_func(task_type, args)
+        while True:
+            # Check for failed tasks and reassign them
+            failed_tasks = self.redis_client.keys("task:*:status:failed")
+            for task_key in failed_tasks:
+                task_id = task_key.decode("utf-8").split(":")[1]
+                task_info = json.loads(self.redis_client.get(task_id))
+                if task_info["status"] == "failed":
+                    task_type = task_info["task"]
+                    args = task_info["args"]
+                    task_info.pop("worker_id", None)
+                    self.redis_client.set(
+                    task_id, json.dumps({"status": "queued", "task": task_type, "args": args})
+                    )
+                    self.producer.send("task_queue", {"task-id": task_id, "task": task_type, "args": args})
+                    self.producer.flush()
+                    print(f"Reassigned Task {task_id} to the queue")
+
+            for message in self.consumer:
+                task_data = message.value
+                task_id = task_data["task-id"]
+                task_type = task_data["task"]
+                args = task_data["args"]
+                
                 self.redis_client.set(
-                    task_id, json.dumps({"status": "success", "result": result, "worker_id": self.worker_id})
+                    task_id, json.dumps({"status": "processing", "worker_id": self.worker_id})
                 )
-                print(f"Task {task_id} completed by {self.worker_id} with result: {result}")
-            
-            except Exception as e:
-                self.redis_client.set(
-                    task_id, json.dumps({"status": "failed", "error": str(e), "worker_id": self.worker_id})
-                )
-                print(f"Task {task_id} failed on {self.worker_id} with error: {e}")
+                
+                try:
+                    result = task_func(task_type, args)
+                    self.redis_client.set(
+                        task_id, json.dumps({"status": "success", "result": result, "worker_id": self.worker_id})
+                    )
+                    print(f"Task {task_id} completed by {self.worker_id} with result: {result}")
+                
+                except Exception as e:
+                    self.redis_client.set(
+                        task_id, json.dumps({"status": "failed", "error": str(e), "worker_id": self.worker_id})
+                    )
+                    print(f"Task {task_id} failed on {self.worker_id} with error: {e}")
 
