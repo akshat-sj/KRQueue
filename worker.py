@@ -1,8 +1,9 @@
 import sys
 import yadtq
-
+import time
 
 def task_func(task_type, args):
+    time.sleep(10)  # Add a delay to simulate a long-running task
     if task_type == "add":
         return args[0] + args[1]
     elif task_type == "sub":

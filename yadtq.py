@@ -53,7 +53,7 @@ class YADTQ:
             value_deserializer=lambda v: json.loads(v.decode("utf-8")),
             enable_auto_commit=True,
             session_timeout_ms=10000,
-            heartbeat_interval_ms=3000,
+            heartbeat_interval_ms=30,
             auto_offset_reset="earliest"
         )
         self.consumer.subscribe([topic], listener=self.RebalanceListener(worker_id))
@@ -73,6 +73,7 @@ class YADTQ:
         def heartbeat():
             while True:
                 self.redis_client.set(f"worker:{self.worker_id}:heartbeat", time.time())
+                print(f"Heartbeat sent for worker {self.worker_id} at {time.time()}")
                 time.sleep(10)
         
         heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
