@@ -2,21 +2,45 @@ import yadtq
 import time
 import random
 import json
+import threading
 
 yadtq_client = yadtq.YADTQ(broker="localhost:9092", backend="localhost")
+
+# Clean up old heartbeat keys
+old_heartbeat_keys = yadtq_client.redis_client.keys("worker:*:heartbeat")
+for key in old_heartbeat_keys:
+    yadtq_client.redis_client.delete(key)
 
 task_types = ["add", "sub", "mul"]
 min_val, max_val = 1, 50
 
 task_ids = []
-for _ in range(10000):
+for _ in range(10):
     task_type = random.choice(task_types)
     args = [random.randint(min_val, max_val), random.randint(min_val, max_val)]
     task_id = yadtq_client.send_task(task_type, args)
     print(f"Submitted Task {task_type} with args {args} - Task ID: {task_id}")
     task_ids.append(task_id)
 
-# polling tasks
+# Function to monitor and print heartbeats
+def monitor_heartbeats():
+    while True:
+        keys = yadtq_client.redis_client.keys("worker:*:heartbeat")
+        current_time = time.time()
+        for key in keys:
+            heartbeat_time = float(yadtq_client.redis_client.get(key))
+            worker_id = key.decode("utf-8").split(":")[1]
+            if current_time - heartbeat_time > 30:
+                print(f"Worker {worker_id} is unresponsive")
+            else:
+                print(f"Heartbeat received from worker {worker_id} at {heartbeat_time}")
+        time.sleep(10)
+
+# Start the heartbeat monitoring in a separate thread
+heartbeat_thread = threading.Thread(target=monitor_heartbeats, daemon=True)
+heartbeat_thread.start()
+
+# Polling tasks
 completed_tasks = set()
 while len(completed_tasks) < len(task_ids):
     for task_id in task_ids:
@@ -43,4 +67,4 @@ while len(completed_tasks) < len(task_ids):
             print(f"Task {task_id} is currently {status}, being processed by {worker_id}")
 
     time.sleep(2)
-
+    print("#############################################")
