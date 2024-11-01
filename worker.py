@@ -1,8 +1,13 @@
 import sys
 import yadtq
 import time
+import random
 
 def task_func(task_type, args):
+    # Simulate a 1 in 5 chance of task failure
+    if random.randint(1, 5) == 1:
+        raise Exception("Task failed")
+
     time.sleep(10)  # Add a delay to simulate a long-running task
     if task_type == "add":
         return args[0] + args[1]
