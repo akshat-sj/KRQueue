@@ -5,6 +5,7 @@ import threading
 from typing import Callable, Optional
 from kafka import KafkaProducer, KafkaConsumer, TopicPartition
 from kafka.consumer.subscription_state import ConsumerRebalanceListener
+from kafka.admin import KafkaAdminClient, NewTopic
 import redis
 
 class YADTQ:
@@ -13,22 +14,33 @@ class YADTQ:
         self.backend = backend
         self.max_retries = max_retries
         self.redis_client = redis.StrictRedis(host=self.backend, port=6379, db=0)
+        self.worker_ids = {worker_id.decode('utf-8') for worker_id in self.redis_client.smembers("active_workers")}
         self.producer = KafkaProducer(
             bootstrap_servers=[self.broker],
             value_serializer=lambda v: json.dumps(v).encode("utf-8")
         )
-    
+        self.admin_client = KafkaAdminClient(
+    	    bootstrap_servers=[self.broker],
+            client_id="admin_client"
+	)
+        
     def send_task(self, task: str, args: list) -> str:
         task_id = str(uuid.uuid4())
         task_data = {"task-id": task_id, "task": task, "args": args}
+        self.redis_client.set(task_id, json.dumps({"status":"queued", "retries": 0}))
         
-        self.redis_client.set(task_id, json.dumps({"status": "queued", "retries": 0}))
+        loads = {worker_id: int(self.redis_client.get(f"worker:{worker_id}:load") or 0) for worker_id in self.worker_ids}
+        print(loads)
+        least_loaded_worker = min(loads, key=loads.get)
+        print(least_loaded_worker)
         
-        self.producer.send("task_queue", task_data)
+        self.redis_client.incr(f"worker:{least_loaded_worker}:load")
+   
+        self.producer.send(least_loaded_worker, task_data)
         self.producer.flush()
         
         return task_id
-
+        
     def status(self, task_id: str) -> str:
         task_info = self.redis_client.get(task_id)
         if task_info:
@@ -80,7 +92,6 @@ class YADTQ:
         heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
         heartbeat_thread.start()
 
-
     def run(self, task_func: Callable[[str, list], str]):
         self.send_heartbeat()
 
@@ -103,6 +114,8 @@ class YADTQ:
                     self.redis_client.set(
                         task_id, json.dumps({"status": "success", "result": result, "worker_id": self.worker_id, "retries": retries})
                     )
+                    
+                    self.redis_client.decr(f"worker:{self.worker_id}:load")
                     print(f"Task {task_id} completed by {self.worker_id} with result: {result}")
                 
                 except Exception as e:
@@ -119,4 +132,3 @@ class YADTQ:
                         self.producer.send("task_queue", {"task-id": task_id, "task": task_type, "args": args})
                         self.producer.flush()
                         print(f"Task {task_id} failed on {self.worker_id} with error: {e}. Retrying {retries}/{self.max_retries}")
-
