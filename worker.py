@@ -2,6 +2,7 @@ import sys
 import yadtq
 import time
 import random
+from kafka.admin import KafkaAdminClient, NewTopic
 
 def task_func(task_type, args):
     # Simulate a 1 in 5 chance of task failure
@@ -21,7 +22,16 @@ def task_func(task_type, args):
 
 worker_id = sys.argv[1]
 yadtq_worker = yadtq.YADTQ(broker="localhost:9092", backend="localhost")
-yadtq_worker.config_worker(group_id="worker-group", topic="task_queue", worker_id=worker_id)
 
+existing_topics = yadtq_worker.admin_client.list_topics()
+if worker_id not in existing_topics:
+    new_topic = NewTopic(
+        name=worker_id,
+        num_partitions=1,
+        replication_factor=1
+    )
+    yadtq_worker.admin_client.create_topics([new_topic])
+
+yadtq_worker.config_worker(group_id="worker-group", topic=worker_id, worker_id=worker_id)
+yadtq_worker.redis_client.sadd("active_workers", worker_id)
 yadtq_worker.run(task_func)
-
