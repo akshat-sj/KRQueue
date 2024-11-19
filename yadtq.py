@@ -28,7 +28,6 @@ class YADTQ:
         task_id = str(uuid.uuid4())
         task_data = {"task-id": task_id, "task": task, "args": args}
         self.redis_client.set(task_id, json.dumps({"status":"queued", "retries": 0}))
-        
         loads = {worker_id: int(self.redis_client.get(f"worker:{worker_id}:load") or 0) for worker_id in self.worker_ids}
         print(loads)
         least_loaded_worker = min(loads, key=loads.get)
@@ -40,6 +39,26 @@ class YADTQ:
         self.producer.flush()
         
         return task_id
+        
+    def send_failtask(self, task_id: str, task_type: str, args: list) -> str:
+    	task_data = {
+        	"task-id": task_id,
+        	"task": task_type,
+        	"args": args,
+    	}
+    	
+    	loads = {worker_id: int(self.redis_client.get(f"worker:{worker_id}:load") or 0) for worker_id in self.worker_ids}
+    	print(loads)
+    	least_loaded_worker = min(loads, key=loads.get)
+    	print(least_loaded_worker)
+    	self.redis_client.incr(f"worker:{least_loaded_worker}:load")
+    	self.producer.send(least_loaded_worker, task_data)
+    	self.producer.flush()
+    	
+    	return task_id
+    	
+    def update_workers(self):
+    	self.worker_ids = {worker_id.decode('utf-8') for worker_id in self.redis_client.smembers("active_workers")}
         
     def status(self, task_id: str) -> str:
         task_info = self.redis_client.get(task_id)
@@ -87,6 +106,7 @@ class YADTQ:
             while True:
                 self.redis_client.set(f"worker:{self.worker_id}:heartbeat", time.time())
                 print(f"Heartbeat sent for worker {self.worker_id} at {time.time()}")
+                self.update_workers()
                 time.sleep(10)
         
         heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
@@ -129,6 +149,5 @@ class YADTQ:
                         self.redis_client.set(
                             task_id, json.dumps({"status": "queued", "task": task_type, "args": args, "retries": retries})
                         )
-                        self.producer.send("task_queue", {"task-id": task_id, "task": task_type, "args": args})
-                        self.producer.flush()
+                        self.send_failtask(task_id, task_type, args)
                         print(f"Task {task_id} failed on {self.worker_id} with error: {e}. Retrying {retries}/{self.max_retries}")
