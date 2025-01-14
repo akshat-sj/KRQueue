@@ -8,7 +8,7 @@ setup(
     author_email='sja.akshat@gmail.com',
     packages=find_packages(),
     install_requires=[
-        'kafka-python',
+        'kafka-python-ng',
         'redis',
     ],
     scripts=[
