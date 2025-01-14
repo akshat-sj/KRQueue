@@ -1,0 +1,4 @@
+__pycache__/
+krq.egg-info
+*.log
+krqenv
