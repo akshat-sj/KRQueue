@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='krq',
     version='0.1.0',
-    description='KRQ Task Queue Library',
+    description='KRQueue distributed task queue library',
     author='Akshat Singh Jaswal',
     author_email='sja.akshat@gmail.com',
     packages=find_packages(),
@@ -22,5 +22,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.6',
+    python_requires='>=3.11',
 )
